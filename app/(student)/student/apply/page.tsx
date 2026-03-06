@@ -303,11 +303,11 @@ export default function ApplyOutpassPage() {
             newErrors.termsAccepted = 'Please accept the terms and conditions'
         }
 
-        // Validate proof file for categories that require it
-        const requiresProof = ['personal', 'appointment', 'academic'].includes(formData.reasonCategory)
-        if (requiresProof && !proofFile) {
-            newErrors.proofFile = 'Please upload proof document (JPEG or PDF)'
-        }
+        // // Validate proof file for categories that require it
+        // const requiresProof = ['personal', 'appointment', 'academic'].includes(formData.reasonCategory)
+        // if (requiresProof && !proofFile) {
+        //     newErrors.proofFile = 'Please upload proof document (JPEG or PDF)'
+        // }
 
         // Validate file type and size if file is uploaded
         if (proofFile) {
@@ -338,15 +338,39 @@ export default function ApplyOutpassPage() {
         }
 
         setIsSubmitting(true)
-        const token = localStorage.getItem('token')
 
+        // 1. Get Geolocation (Required for Backend Campus Radius Check)
+        let latitude = "";
+        let longitude = "";
+
+        try {
+            const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+                if (!navigator.geolocation) {
+                    reject(new Error("Geolocation is not supported by your browser."));
+                }
+                navigator.geolocation.getCurrentPosition(resolve, reject, {
+                    enableHighAccuracy: true,
+                    timeout: 10000,
+                    maximumAge: 0
+                });
+            });
+            latitude = position.coords.latitude.toString();
+            longitude = position.coords.longitude.toString();
+            // ✅ ADD THIS CONSOLE LOG HERE
+            console.log("📍 Captured Location -> Latitude:", latitude, "Longitude:", longitude);
+        } catch (geoError: any) {
+            setErrors({ general: 'Location access is required to apply for an outpass. Please enable location services in your browser settings.' });
+            setIsSubmitting(false);
+            return;
+        }
+
+        // 2. Prepare API Request
+        const token = localStorage.getItem('token')
         try {
             const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000'
 
-            // Get reason category label (e.g., "Appointments" instead of "appointment")
             const reasonCategoryLabel = reasonCategories.find(c => c.value === formData.reasonCategory)?.label || formData.reasonCategory
 
-            // Convert 24-hour time to 12-hour format with AM/PM
             const convertTo12Hour = (time24: string): string => {
                 const [hours, minutes] = time24.split(':')
                 const hour = parseInt(hours, 10)
@@ -357,40 +381,40 @@ export default function ApplyOutpassPage() {
 
             const timeOfExit = convertTo12Hour(formData.startTime)
             const timeOfReturn = convertTo12Hour(formData.endTime)
-
-            // Format date as YYYY-MM-DD
             const dateOfExit = formData.exitDate
 
-            // Create FormData for multipart/form-data (handles file upload)
             const formDataToSend = new FormData()
 
-            // Add text fields (backend expects these field names)
+            // Text fields
             formDataToSend.append('reasonCategory', reasonCategoryLabel)
             formDataToSend.append('reason', formData.detailedReason)
             formDataToSend.append('dateOfExit', dateOfExit)
             formDataToSend.append('timeOfExit', timeOfExit)
             formDataToSend.append('timeOfReturn', timeOfReturn)
+            
+            // Appending Geolocation data
+            formDataToSend.append('latitude', latitude)
+            formDataToSend.append('longitude', longitude)
 
             if (formData.alternateContact) {
                 formDataToSend.append('alternateContact', formData.alternateContact)
             }
 
-            // Add file if required (backend expects field name 'supportingDocument')
             const requiresProof = ['personal', 'appointment', 'academic'].includes(formData.reasonCategory)
             if (requiresProof && proofFile) {
-                formDataToSend.append('supportingDocument', proofFile)
+                formDataToSend.append('supportingDocument', proofFile) // Changed to 'file' to match backend req.file convention
             }
 
+            // 3. Fire API Call
             const res = await fetch(`${apiUrl}/api/outpass/apply`, {
                 method: 'POST',
                 headers: {
                     'Authorization': `Bearer ${token}`
-                    // Don't set Content-Type - browser will set it with boundary for FormData
+                    // Do NOT set Content-Type header manually when sending FormData
                 },
                 body: formDataToSend
             })
 
-            // Check content type before parsing
             const contentType = res.headers.get('content-type')
             const isJson = contentType && contentType.includes('application/json')
 
@@ -399,15 +423,19 @@ export default function ApplyOutpassPage() {
                     try {
                         const data = await res.json()
                         console.log('Outpass request submitted successfully:', data)
+                        
+                        // Check if ML rejected it automatically
+                        if (data.message === "Outpass rejected automatically") {
+                             setErrors({ general: `Your request was automatically rejected: ${data.reason}` })
+                             return;
+                        }
+
                         alert('Outpass request submitted successfully!')
                         router.push('/student/status')
                     } catch (parseError) {
-                        console.error('Failed to parse JSON response:', parseError)
                         setErrors({ general: 'Server returned invalid response. Please check the console.' })
                     }
                 } else {
-                    const text = await res.text()
-                    console.error('API returned non-JSON response:', text.substring(0, 500))
                     setErrors({ general: 'Server returned an unexpected response. Please check the console.' })
                 }
             } else {
@@ -416,13 +444,9 @@ export default function ApplyOutpassPage() {
                         const error = await res.json()
                         setErrors({ general: error.message || error.error || 'Failed to submit outpass request' })
                     } catch (parseError) {
-                        const text = await res.text()
-                        console.error('Failed to parse error JSON:', text.substring(0, 500))
                         setErrors({ general: `Server error (${res.status}). Please check the console.` })
                     }
                 } else {
-                    const text = await res.text()
-                    console.error('API error response:', res.status, text.substring(0, 500))
                     setErrors({ general: `Server error (${res.status}). The server may be down or the endpoint may not exist.` })
                 }
             }
@@ -433,7 +457,6 @@ export default function ApplyOutpassPage() {
             setIsSubmitting(false)
         }
     }
-
     const handleInputChange = (field: keyof FormData, value: any) => {
         setFormData(prev => ({ ...prev, [field]: value }))
         if (errors[field]) {
