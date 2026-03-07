@@ -78,10 +78,19 @@ export default function ApplyOutpassPage() {
         alternateParentContact: ''
     })
 
+    // Helper function to get today's date strictly in the user's local timezone
+    const getLocalTodayString = () => {
+        const today = new Date();
+        const year = today.getFullYear();
+        const month = String(today.getMonth() + 1).padStart(2, '0');
+        const day = String(today.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+    };
+
     const [formData, setFormData] = useState<FormData>({
         reasonCategory: '',
         detailedReason: '',
-        exitDate: new Date().toISOString().split('T')[0],
+        exitDate: getLocalTodayString(), // ✅ FIX: Uses local timezone (IST)
         startTime: '',
         endTime: '',
         primaryContact: '',
@@ -767,8 +776,8 @@ export default function ApplyOutpassPage() {
                                             name="exitDate"
                                             value={formData.exitDate}
                                             onChange={(e) => handleInputChange('exitDate', e.target.value)}
-                                            min={new Date().toISOString().split('T')[0]}
-                                            max={new Date().toISOString().split('T')[0]}
+                                            min={getLocalTodayString()} // ✅ Uses local timezone
+                                            max={getLocalTodayString()} // ✅ Uses local timezone
                                             className={`w-full pl-10 pr-3 py-2 border rounded-md focus:ring-2 focus:ring-[#1F8941] focus:outline-none ${errors.exitDate ? 'border-red-300' : 'border-gray-300'
                                                 }`}
                                             required
