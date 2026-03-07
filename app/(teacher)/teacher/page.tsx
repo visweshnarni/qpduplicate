@@ -11,7 +11,8 @@ import {
     Phone,
     Shield,
     History,
-    FileText
+    FileText,
+    Bot // ✅ ADDED BOT ICON
 } from 'lucide-react'
 
 interface PendingRequestSummary {
@@ -38,7 +39,12 @@ interface PendingRequest {
     returnTime?: string
     requestedAt?: string
     isEmergency?: boolean
-    parentVerified?: boolean
+    // ✅ NEW BACKEND FIELDS ADDED
+    status: string
+    mlDecision?: string
+    mlExplanation?: string
+    parentVerificationStatus?: string
+    parentVerifiedBy?: string
 }
 
 export default function TeacherDashboardPage() {
@@ -118,35 +124,14 @@ export default function TeacherDashboardPage() {
         return requests.filter(request => request.isEmergency).slice(0, 2)
     }, [requests])
 
-    const getStatusColor = (status: string) => {
-        switch (status) {
-            case 'approved': return 'text-green-700 bg-green-50 border-green-300'
-            case 'rejected': return 'text-gray-700 bg-gray-100 border-gray-300'
-            case 'pending_verification': return 'text-orange-600 bg-orange-50 border-orange-200'
-            default: return 'text-green-600 bg-green-25 border-green-200'
-        }
-    }
-
-    const getStatusIcon = (status: string) => {
-        switch (status) {
-            case 'approved': return <CheckCircle className="w-4 h-4" />
-            case 'rejected': return <XCircle className="w-4 h-4" />
-            case 'pending_verification': return <Phone className="w-4 h-4" />
-            default: return <Clock className="w-4 h-4" />
-        }
-    }
-
     return (
         <div className="p-6 space-y-6">
+            {/* ... Existing Banner & Filter Buttons remain unchanged ... */}
             <div className="bg-gradient-to-r from-[#1F8941] to-[#1a7a39] text-white rounded-xl p-6">
                 <div className="flex items-center justify-between">
                     <div>
-                        <h1 className="text-2xl font-bold mb-2">
-                            Pending Outpass Requests
-                        </h1>
-                        <p className="text-green-100">
-                            Filter: {filterParam === 'myclass' ? 'My Class' : 'Entire Department'}
-                        </p>
+                        <h1 className="text-2xl font-bold mb-2">Pending Outpass Requests</h1>
+                        <p className="text-green-100">Filter: {filterParam === 'myclass' ? 'My Class' : 'Entire Department'}</p>
                     </div>
                     <div className="hidden md:flex items-center space-x-4">
                         <div className="text-center">
@@ -250,31 +235,55 @@ export default function TeacherDashboardPage() {
                             ) : (
                                 pendingRequests.map((request) => (
                                     <div key={request.requestId} className="border border-gray-200 rounded-lg p-4">
-                                        <div className="flex items-center justify-between mb-2">
-                                            <div className="flex items-center space-x-3">
-                                                <div className="w-8 h-8 bg-gray-100 rounded-full flex items-center justify-center">
-                                                    <User className="w-4 h-4 text-gray-600" />
+                                        
+                                        {/* Header Row: Student Info & Badges */}
+                                        <div className="flex flex-col sm:flex-row sm:items-start justify-between mb-3 gap-3">
+                                            <div className="flex items-start space-x-3">
+                                                <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center flex-shrink-0 mt-1">
+                                                    <User className="w-5 h-5 text-gray-600" />
                                                 </div>
                                                 <div>
-                                                    <h3 className="font-medium text-gray-900">{request.studentName}</h3>
-                                                    <p className="text-sm text-gray-500">{request.rollNumber}</p>
-                                                    <p className="text-xs text-gray-400">{request.class}</p>
+                                                    <h3 className="font-semibold text-gray-900">{request.studentName}</h3>
+                                                    <p className="text-sm text-gray-500">{request.rollNumber} • {request.class}</p>
+                                                    
+                                                    {/* ✅ NEW DYNAMIC BADGES ROW */}
+                                                    <div className="flex flex-wrap gap-2 mt-2">
+                                                        {request.mlDecision === 'AUTO_APPROVE' && (
+                                                            <span className="inline-flex items-center px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide rounded bg-blue-50 text-blue-700 border border-blue-200">
+                                                                <Bot className="w-3 h-3 mr-1" /> ML Approved
+                                                            </span>
+                                                        )}
+                                                        
+                                                        {request.status === 'pending_parent' ? (
+                                                            <span className="inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-full bg-orange-50 text-orange-700 border border-orange-200">
+                                                                <Phone className="w-3 h-3 mr-1" /> Waiting for Parent IVR
+                                                            </span>
+                                                        ) : request.parentVerificationStatus === 'approved' ? (
+                                                            <span className="inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-full bg-green-50 text-green-700 border border-green-200">
+                                                                <CheckCircle className="w-3 h-3 mr-1" /> Parent Verified
+                                                            </span>
+                                                        ) : (
+                                                            <span className="inline-flex items-center px-2 py-0.5 text-xs font-medium rounded-full bg-yellow-50 text-yellow-700 border border-yellow-200">
+                                                                <Clock className="w-3 h-3 mr-1" /> Needs Review
+                                                            </span>
+                                                        )}
+                                                    </div>
                                                 </div>
                                             </div>
-                                            <span className={`inline-flex items-center px-2 py-1 text-xs font-medium rounded-full border ${getStatusColor(request.parentVerified ? 'pending_verification' : 'pending')}`}>
-                                                {getStatusIcon(request.parentVerified ? 'pending_verification' : 'pending')}
-                                                <span className="ml-1 capitalize">{request.parentVerified ? 'parent verified' : 'awaiting review'}</span>
-                                            </span>
                                         </div>
-                                        <p className="text-sm text-gray-600 mb-2">
-                                            <span className="font-medium">{request.reasonCategory}:</span> {request.reason}
+
+                                        <p className="text-sm text-gray-700 mb-3 bg-gray-50 p-2 rounded">
+                                            <span className="font-semibold text-gray-900">{request.reasonCategory}:</span> {request.reason}
                                         </p>
-                                        <div className="flex flex-wrap items-center justify-between text-xs text-gray-500 gap-2">
-                                            <span>Exit: {request.exitTime || '—'}</span>
-                                            <span>Return: {request.returnTime || '—'}</span>
+                                        
+                                        <div className="flex flex-wrap items-center justify-between text-xs text-gray-500 gap-2 border-t pt-2 mt-2">
+                                            <div className="flex space-x-4">
+                                                <span><strong className="text-gray-700">Exit:</strong> {request.exitTime || '—'}</span>
+                                                <span><strong className="text-gray-700">Return:</strong> {request.returnTime || '—'}</span>
+                                            </div>
                                             {request.lowAttendance && (
                                                 <span className="inline-flex items-center text-red-600 font-medium">
-                                                    Low attendance at apply ({request.attendanceAtApply ?? '—'}%)
+                                                    Low attendance ({request.attendanceAtApply ?? '—'}%)
                                                 </span>
                                             )}
                                         </div>
@@ -286,6 +295,7 @@ export default function TeacherDashboardPage() {
                 </div>
 
                 <div className="space-y-6">
+                    {/* Quick Actions */}
                     <div className="bg-white rounded-xl shadow-sm border p-6">
                         <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
                             <Shield className="w-5 h-5 mr-2 text-[#1F8941]" />
@@ -309,6 +319,7 @@ export default function TeacherDashboardPage() {
                         </div>
                     </div>
 
+                    {/* Emergency Alerts */}
                     <div className="bg-white rounded-xl shadow-sm border p-6">
                         <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
                             <AlertCircle className="w-5 h-5 mr-2 text-red-500" />
