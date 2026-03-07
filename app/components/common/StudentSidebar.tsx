@@ -7,7 +7,6 @@ const menuItems = [
     { label: 'Apply Outpass', path: '/student/apply' },
     { label: 'Status', path: '/student/status' },
     { label: 'History', path: '/student/history' },
-    { label: 'My Outpass Score', path: '/student/myoutpassScore' },
     { label: 'Logout', path: '/student/logout' },
 ];
 
