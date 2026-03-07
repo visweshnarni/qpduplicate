@@ -5,7 +5,6 @@ import { useRouter, usePathname } from 'next/navigation';
 const menuItems = [
     { label: 'Dashboard', path: '/teacher' },
     { label: 'Pending Requests', path: '/teacher/pending-requests' },
-    { label: 'Parent Verification', path: '/teacher/parent-verification' },
     { label: 'History', path: '/teacher/history' },
     { label: 'Student Profiles', path: '/teacher/student-profiles' },
     { label: 'Logout', path: '/teacher/logout' },

@@ -12,10 +12,12 @@ import {
   RefreshCw,
   Search,
   User,
+  LogOut,
   XCircle
 } from 'lucide-react'
 
 const DEFAULT_LIMIT = 10
+// Exited is grouped logically under "approved" in the backend, but we keep it here for specific tracking if needed
 const STATUS_OPTIONS = ['all', 'approved', 'rejected', 'cancelled'] as const
 const SORT_OPTIONS = ['newest', 'oldest'] as const
 
@@ -50,7 +52,7 @@ interface HistoryStudent {
 
 interface HistoryOutpass {
   requestId: string
-  status: string
+  status: string // 'approved' | 'rejected' | 'cancelled' | 'exited'
   reasonCategory: string
   reason?: string
   exitTime?: string
@@ -237,12 +239,23 @@ export default function FacultyHistoryPage() {
     return '📄'
   }
 
+  // ✅ UPDATED BADGE STYLING
   const statusClasses = (status: string) => {
     const normalized = status.toLowerCase()
     if (normalized === 'approved') return 'bg-green-50 text-green-600 border-green-200'
+    if (normalized === 'exited') return 'bg-teal-50 text-teal-600 border-teal-200'
     if (normalized === 'rejected') return 'bg-red-50 text-red-600 border-red-200'
     if (normalized === 'cancelled') return 'bg-gray-50 text-gray-600 border-gray-200'
     return 'bg-gray-50 text-gray-500 border-gray-200'
+  }
+
+  // ✅ ADDED ICON FOR BADGE
+  const getStatusIcon = (status: string) => {
+    const normalized = status.toLowerCase()
+    if (normalized === 'exited') return <LogOut className="w-3 h-3" />
+    if (normalized === 'approved') return <CheckCircle className="w-3 h-3" />
+    if (normalized === 'rejected') return <XCircle className="w-3 h-3" />
+    return <Clock className="w-3 h-3" />
   }
 
   const handleRefresh = () => {
@@ -427,7 +440,10 @@ export default function FacultyHistoryPage() {
                       <p className="text-sm text-gray-500">#{record.requestId}</p>
                     </div>
                   </div>
+                  
+                  {/* ✅ Renders dynamic icons for Exited vs Approved */}
                   <span className={`inline-flex items-center gap-1 px-3 py-1 text-xs font-semibold rounded-full border ${statusClass}`}>
+                    {getStatusIcon(record.status)}
                     <span className="capitalize">{record.status}</span>
                   </span>
                 </header>
