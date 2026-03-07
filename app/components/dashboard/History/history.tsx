@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { JSX, useCallback, useEffect, useMemo, useState } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import {
     Calendar,
@@ -10,7 +10,8 @@ import {
     Loader2,
     RefreshCw,
     User,
-    XCircle
+    XCircle,
+    LogOut // ✅ ADD THIS
 } from 'lucide-react'
 
 import {
@@ -83,7 +84,18 @@ const STATUS_THEME: Record<
         noteBorder: 'border-gray-200',
         noteTitleColor: 'text-gray-700',
         noteTextColor: 'text-gray-600'
-    }
+    },
+    // ✅ ADD THIS EXITED BLOCK
+    exited: {
+        badgeBg: 'bg-teal-50',
+        badgeBorder: 'border-teal-200',
+        badgeText: 'text-teal-600',
+        icon: <LogOut className="w-3 h-3" />,
+        noteBg: 'bg-teal-50',
+        noteBorder: 'border-teal-200',
+        noteTitleColor: 'text-teal-800',
+        noteTextColor: 'text-teal-700'
+    },
 }
 
 const CATEGORY_EMOJI: Record<string, string> = {
