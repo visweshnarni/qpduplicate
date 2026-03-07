@@ -4,8 +4,7 @@ import { useRouter, usePathname } from 'next/navigation'
 import { Zap, Settings, LogOut } from 'lucide-react'
 
 const menuItems = [
-    { label: 'QR Scanner', path: '/security', icon: Zap },
-    { label: 'Settings', path: '/security/settings', icon: Settings },
+    { label: 'Scan Outpasses', path: '/security', icon: Zap }
 ]
 
 export default function SecuritySidebar() {

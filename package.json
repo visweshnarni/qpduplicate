@@ -26,6 +26,7 @@
     "date-fns": "^4.1.0",
     "framer-motion": "^12.19.2",
     "jspdf": "^3.0.1",
+    "jsqr": "^1.4.0",
     "lucide-react": "^0.518.0",
     "next": "15.3.4",
     "qrcode.react": "^4.2.0",

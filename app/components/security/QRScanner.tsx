@@ -1,7 +1,8 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
-import { AlertCircle, CheckCircle, Loader, Camera, X } from 'lucide-react'
+import { useEffect, useRef, useState, useCallback } from 'react'
+import { AlertCircle, CheckCircle, Loader, Camera, X, Search as SearchIcon } from 'lucide-react'
+import jsQR from 'jsqr'
 
 interface QRScanResult {
     studentName: string
@@ -12,17 +13,31 @@ interface QRScanResult {
     status: string
 }
 
+interface SearchResult {
+    outpassId: string
+    studentName: string
+    rollNumber: string
+    reasonCategory: string
+    exitTime: string
+    returnTime: string
+}
+
+const API_BASE = (process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, '') as string) || "http://localhost:5000"
+
 export default function QRScanner() {
     const videoRef = useRef<HTMLVideoElement>(null)
     const canvasRef = useRef<HTMLCanvasElement>(null)
     const [isScannerActive, setIsScannerActive] = useState(false)
     const [scanning, setScanning] = useState(false)
     const [result, setResult] = useState<QRScanResult | null>(null)
+    const [searchResult, setSearchResult] = useState<SearchResult | null>(null) // For manual lookup
     const [error, setError] = useState<string | null>(null)
     const [loading, setLoading] = useState(false)
     const [cameraPermission, setCameraPermission] = useState<boolean | null>(null)
 
-    // Initialize camera only when user wants to scan
+    const getToken = () => typeof window !== "undefined" ? window.localStorage.getItem("token") : null;
+
+    // --- 1. CAMERA INITIALIZATION ---
     useEffect(() => {
         if (!isScannerActive) return
 
@@ -54,73 +69,143 @@ export default function QRScanner() {
         }
     }, [isScannerActive])
 
-    // Handle stopping scanner
-    const handleStopScanning = () => {
+    const handleStopScanning = useCallback(() => {
         if (videoRef.current && videoRef.current.srcObject) {
             const tracks = (videoRef.current.srcObject as MediaStream).getTracks()
             tracks.forEach(track => track.stop())
         }
         setIsScannerActive(false)
         setScanning(false)
-        setError(null)
-    }
+    }, [])
 
-    // Capture and scan QR code
+    // --- 2. API: SCAN QR & MARK EXITED ---
+    const handleQRScanned = useCallback(async (qrToken: string) => {
+        handleStopScanning() // Stop camera once scanned
+        setLoading(true)
+        setError(null)
+        setResult(null)
+        setSearchResult(null)
+
+        try {
+            const response = await fetch(`${API_BASE}/api/security/scan-qr`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${getToken()}`
+                },
+                body: JSON.stringify({ qrToken })
+            })
+
+            const data = await response.json()
+
+            if (!response.ok) {
+                throw new Error(data.message || "Failed to verify QR Code")
+            }
+
+            setResult(data.data) // Show success UI
+        } catch (err: any) {
+            setError(err.message || 'Error processing QR Code')
+        } finally {
+            setLoading(false)
+        }
+    }, [handleStopScanning])
+
+    // --- 3. QR DECODING LOOP ---
     useEffect(() => {
         if (!scanning || !videoRef.current || !canvasRef.current) return
 
-        const scanInterval = setInterval(async () => {
+        const scanInterval = setInterval(() => {
             const canvas = canvasRef.current
             const video = videoRef.current
-            const ctx = canvas?.getContext('2d')
+            const ctx = canvas?.getContext('2d', { willReadFrequently: true })
 
-            if (canvas && video && ctx) {
+            // Ensure video has loaded enough data to draw
+            if (canvas && video && ctx && video.readyState === video.HAVE_ENOUGH_DATA) {
                 canvas.width = video.videoWidth
                 canvas.height = video.videoHeight
-                ctx.drawImage(video, 0, 0)
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
 
-                // Try to decode QR code using jsQR library
-                try {
-                    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
-                    // Using a simple approach - in production, use a QR code library like jsQR or html5-qrcode
-                    // For now, we'll use text input as fallback
-                } catch (err) {
-                    console.log('QR scan in progress...')
+                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+                
+                // Use jsQR to decode the frame
+                const code = jsQR(imageData.data, imageData.width, imageData.height, {
+                    inversionAttempts: "dontInvert",
+                })
+
+                if (code && code.data) {
+                    clearInterval(scanInterval) // Stop the loop
+                    handleQRScanned(code.data)  // Fire API
                 }
             }
-        }, 500)
+        }, 300) // Scan 3 times a second
 
         return () => clearInterval(scanInterval)
-    }, [scanning])
+    }, [scanning, handleQRScanned])
 
-    // Handle manual roll number input
-    const handleRollNumberInput = async (rollNumber: string) => {
-        if (!rollNumber.trim()) {
-            setError('Please enter a valid roll number')
+    // --- 4. API: MANUAL SEARCH ---
+    const handleRollNumberSearch = async (query: string) => {
+        if (!query.trim()) {
+            setError('Please enter a valid roll number or ID')
             return
         }
 
         setLoading(true)
         setError(null)
+        setResult(null)
+        setSearchResult(null)
 
         try {
-            // For now, just show dummy verification
-            // Later this will call the backend API
-            const dummyResult: QRScanResult = {
-                studentName: 'Student Name',
-                rollNumber: rollNumber.toUpperCase(),
-                outpassId: 'OUT-' + Date.now(),
-                exitTime: new Date().toISOString(),
-                returnTime: new Date(Date.now() + 4 * 60 * 60000).toISOString(),
-                status: 'verified'
+            const response = await fetch(`${API_BASE}/api/security/search-outpass?query=${encodeURIComponent(query)}`, {
+                method: "GET",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${getToken()}`
+                }
+            })
+
+            const data = await response.json()
+
+            if (!response.ok) {
+                throw new Error(data.message || "Search failed")
             }
 
-            setResult(dummyResult)
-            setTimeout(() => {
-                setResult(null)
-            }, 5000)
+            setSearchResult(data.data) // Show confirmation UI
         } catch (err: any) {
-            setError(err.message || 'Failed to verify roll number')
+            setError(err.message || 'Failed to search for student')
+        } finally {
+            setLoading(false)
+        }
+    }
+
+    // --- 5. API: MANUAL MARK EXITED ---
+    const handleManualMarkExited = async (outpassId: string) => {
+        setLoading(true)
+        setError(null)
+
+        try {
+            const response = await fetch(`${API_BASE}/api/security/mark-exited/${outpassId}`, {
+                method: "PUT",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${getToken()}`
+                }
+            })
+
+            const data = await response.json()
+
+            if (!response.ok) {
+                throw new Error(data.message || "Failed to mark as exited")
+            }
+
+            // Move from Search UI to Success UI
+            setSearchResult(null) 
+            setResult({
+                ...data.data,
+                exitTime: new Date().toLocaleTimeString(),
+                returnTime: 'Pending'
+            })
+        } catch (err: any) {
+            setError(err.message || 'Failed to mark as exited')
         } finally {
             setLoading(false)
         }
@@ -129,107 +214,107 @@ export default function QRScanner() {
     return (
         <div className="space-y-6">
             {/* Start Scanner Button */}
-            {!isScannerActive ? (
+            {!isScannerActive && !loading && (
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-6 text-center">
                     <Camera className="w-12 h-12 text-blue-600 mx-auto mb-4" />
-                    <h3 className="text-lg font-bold text-blue-900 mb-2">Start QR Scanner</h3>
-                    <p className="text-blue-700 mb-4">
-                        Click the button below to start scanning QR codes. Your browser will ask for camera permission.
+                    <h3 className="text-lg font-bold text-blue-900 mb-2">Start Live QR Scanner</h3>
+                    <p className="text-blue-700 mb-4 text-sm">
+                        Scan the time-sensitive QR code from the student's mobile device.
                     </p>
                     <button
                         onClick={() => {
                             setError(null)
+                            setResult(null)
+                            setSearchResult(null)
                             setIsScannerActive(true)
                         }}
-                        className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold flex items-center justify-center mx-auto space-x-2"
+                        className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold flex items-center justify-center mx-auto space-x-2 shadow-sm"
                     >
                         <Camera className="w-5 h-5" />
                         <span>Open Scanner</span>
                     </button>
                 </div>
-            ) : null}
+            )}
 
             {/* Camera Feed */}
             {isScannerActive && (
                 <>
                     {cameraPermission !== false ? (
-                        <div className="bg-gray-900 rounded-lg overflow-hidden relative aspect-video">
+                        <div className="bg-gray-900 rounded-lg overflow-hidden relative aspect-[4/3] md:aspect-video shadow-inner">
                             <video
                                 ref={videoRef}
                                 autoPlay
                                 playsInline
-                                className="w-full h-full"
+                                className="w-full h-full object-cover"
                             />
-                            <canvas ref={canvasRef} style={{ display: 'none' }} />
+                            <canvas ref={canvasRef} className="hidden" />
 
-                            {/* QR Scanning Overlay */}
+                            {/* QR Scanning Target Overlay */}
                             <div className="absolute inset-0 flex items-center justify-center">
-                                <div className="w-64 h-64 border-4 border-green-500 rounded-lg opacity-50"></div>
+                                <div className="w-48 h-48 sm:w-64 sm:h-64 border-4 border-green-400 rounded-2xl opacity-80 animate-pulse"></div>
                             </div>
 
-                            {/* Status Text */}
-                            <div className="absolute bottom-4 left-0 right-0 text-center text-white">
-                                <p className="text-sm font-semibold">Point camera at QR code</p>
+                            <div className="absolute bottom-6 left-0 right-0 text-center">
+                                <span className="bg-black/60 text-white px-4 py-2 rounded-full text-sm font-medium backdrop-blur-sm">
+                                    Scanning for QR...
+                                </span>
                             </div>
 
-                            {/* Stop Button */}
                             <button
                                 onClick={handleStopScanning}
-                                className="absolute top-4 right-4 bg-red-600 hover:bg-red-700 text-white p-2 rounded-lg transition-colors"
+                                className="absolute top-4 right-4 bg-red-600 hover:bg-red-700 text-white p-2.5 rounded-full transition-colors shadow-lg"
                                 title="Stop Scanner"
                             >
-                                <X className="w-6 h-6" />
+                                <X className="w-5 h-5" />
                             </button>
                         </div>
                     ) : (
                         <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
                             <AlertCircle className="w-8 h-8 text-red-500 mx-auto mb-2" />
-                            <p className="text-red-700">Camera permission denied</p>
-                            <p className="text-red-600 text-sm mt-1">Please enable camera access in your browser settings</p>
+                            <p className="text-red-700 font-bold">Camera permission denied</p>
+                            <p className="text-red-600 text-sm mt-1">Please enable camera access in your browser URL bar settings.</p>
                             <button
                                 onClick={handleStopScanning}
-                                className="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                                className="mt-4 px-6 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors font-medium"
                             >
-                                Close
+                                Close Scanner
                             </button>
                         </div>
                     )}
-
-                    <canvas ref={canvasRef} style={{ display: 'none' }} />
                 </>
             )}
 
-            {/* Manual Input - Always Show */}
-
-            {/* Manual Roll Number Input */}
-            <div className="bg-white rounded-lg p-6 border border-gray-200">
-                <label className="block text-sm font-semibold text-gray-700 mb-3">
-                    Enter Student Roll Number:
+            {/* Manual Roll Number Search */}
+            <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
+                <label className="block text-sm font-bold text-gray-800 mb-3">
+                    Manual Verification (Roll No / Outpass ID)
                 </label>
-                <div className="flex gap-2">
-                    <input
-                        type="text"
-                        id="roll-input"
-                        placeholder="Enter student roll number (e.g., A001)"
-                        className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
-                        onKeyPress={(e) => {
-                            if (e.key === 'Enter') {
-                                handleRollNumberInput((e.target as HTMLInputElement).value)
-                                ;(e.target as HTMLInputElement).value = ''
-                            }
-                        }}
-                    />
+                <div className="flex flex-col sm:flex-row gap-3">
+                    <div className="relative flex-1">
+                        <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+                        <input
+                            type="text"
+                            id="roll-input"
+                            placeholder="Enter Roll No (e.g. 21CS1001)"
+                            className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#1F8941] uppercase"
+                            onKeyPress={(e) => {
+                                if (e.key === 'Enter') {
+                                    const input = e.target as HTMLInputElement
+                                    handleRollNumberSearch(input.value)
+                                }
+                            }}
+                            disabled={loading || isScannerActive}
+                        />
+                    </div>
                     <button
                         onClick={() => {
                             const input = document.getElementById('roll-input') as HTMLInputElement
-                            handleRollNumberInput(input.value)
-                            input.value = ''
+                            handleRollNumberSearch(input.value)
                         }}
-                        disabled={loading}
-                        className="px-6 py-2 bg-[#1F8941] text-white rounded-lg hover:bg-green-700 disabled:bg-gray-400 transition-colors flex items-center space-x-2"
+                        disabled={loading || isScannerActive}
+                        className="px-8 py-3 bg-gray-900 text-white rounded-lg hover:bg-gray-800 disabled:bg-gray-400 transition-colors flex items-center justify-center space-x-2 font-medium"
                     >
-                        {loading && <Loader className="w-4 h-4 animate-spin" />}
-                        <span>Verify</span>
+                        {loading ? <Loader className="w-5 h-5 animate-spin" /> : <span>Search</span>}
                     </button>
                 </div>
             </div>
@@ -239,55 +324,88 @@ export default function QRScanner() {
                 <div className="bg-red-50 border border-red-200 rounded-lg p-4 flex items-start space-x-3">
                     <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
                     <div>
-                        <p className="font-semibold text-red-700">Error</p>
-                        <p className="text-red-600 text-sm">{error}</p>
+                        <p className="font-bold text-red-800">Scan Failed</p>
+                        <p className="text-red-700 text-sm mt-1">{error}</p>
                     </div>
                 </div>
             )}
 
-            {/* Success Result */}
-            {result && (
-                <div className="bg-green-50 border border-green-200 rounded-lg p-6 animate-in fade-in slide-in-from-top-2">
+            {/* Manual Search Result (Awaiting Confirmation) */}
+            {searchResult && (
+                <div className="bg-yellow-50 border border-yellow-300 rounded-xl p-6">
                     <div className="flex items-start space-x-4">
-                        <CheckCircle className="w-6 h-6 text-green-600 flex-shrink-0 mt-1" />
+                        <AlertCircle className="w-6 h-6 text-yellow-600 flex-shrink-0 mt-1" />
                         <div className="flex-1">
-                            <h3 className="font-bold text-green-800 text-lg mb-3">Student Marked as Exited</h3>
-                            <div className="space-y-2 text-green-700 text-sm">
-                                <div className="flex justify-between">
-                                    <span className="font-semibold">Name:</span>
-                                    <span>{result.studentName}</span>
+                            <h3 className="font-bold text-yellow-800 text-lg mb-1">Approved Outpass Found</h3>
+                            <p className="text-sm text-yellow-700 mb-4">Please verify the student visually before marking as exited.</p>
+                            
+                            <div className="bg-white rounded-lg p-4 border border-yellow-200 space-y-2 mb-4">
+                                <p className="text-sm"><span className="text-gray-500 font-medium w-24 inline-block">Name:</span> <span className="font-bold text-gray-900">{searchResult.studentName}</span></p>
+                                <p className="text-sm"><span className="text-gray-500 font-medium w-24 inline-block">Roll No:</span> <span className="font-bold text-gray-900">{searchResult.rollNumber}</span></p>
+                                <p className="text-sm"><span className="text-gray-500 font-medium w-24 inline-block">Reason:</span> <span className="text-gray-900">{searchResult.reasonCategory}</span></p>
+                                <div className="border-t border-gray-100 pt-2 mt-2">
+                                    <p className="text-sm"><span className="text-gray-500 font-medium w-24 inline-block">Exit Time:</span> <span className="font-medium text-gray-900">{searchResult.exitTime}</span></p>
                                 </div>
-                                <div className="flex justify-between">
-                                    <span className="font-semibold">Roll Number:</span>
-                                    <span>{result.rollNumber}</span>
-                                </div>
-                                <div className="flex justify-between">
-                                    <span className="font-semibold">Exit Time:</span>
-                                    <span>{result.exitTime}</span>
-                                </div>
-                                <div className="flex justify-between">
-                                    <span className="font-semibold">Expected Return:</span>
-                                    <span>{result.returnTime}</span>
-                                </div>
-                                <div className="flex justify-between">
-                                    <span className="font-semibold">Status:</span>
-                                    <span className="bg-green-600 text-white px-3 py-1 rounded-full text-xs">
-                                        {result.status}
-                                    </span>
-                                </div>
+                            </div>
+
+                            <div className="flex gap-3">
+                                <button
+                                    onClick={() => handleManualMarkExited(searchResult.outpassId)}
+                                    disabled={loading}
+                                    className="flex-1 bg-[#1F8941] text-white px-4 py-2.5 rounded-lg hover:bg-[#1a7a39] font-medium flex items-center justify-center gap-2"
+                                >
+                                    {loading ? <Loader className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+                                    Confirm Exit
+                                </button>
+                                <button
+                                    onClick={() => setSearchResult(null)}
+                                    disabled={loading}
+                                    className="px-6 py-2.5 bg-white border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 font-medium"
+                                >
+                                    Cancel
+                                </button>
                             </div>
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* Info Box */}
-            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                <p className="text-blue-800 text-sm">
-                    <strong>Note:</strong> The system will decode the QR code and automatically update the student's exit status. 
-                    Keep the camera steady for better scanning accuracy.
-                </p>
-            </div>
+            {/* Final Success Result */}
+            {result && (
+                <div className="bg-green-50 border border-green-400 rounded-xl p-6 shadow-sm animate-in zoom-in-95 duration-300">
+                    <div className="flex items-start space-x-4">
+                        <CheckCircle className="w-8 h-8 text-green-600 flex-shrink-0 mt-1" />
+                        <div className="flex-1">
+                            <h3 className="font-black text-green-800 text-xl mb-1">EXIT APPROVED</h3>
+                            <p className="text-green-700 text-sm mb-4 font-medium">Student has been officially marked as exited.</p>
+                            
+                            <div className="bg-white rounded-lg p-4 border border-green-200 space-y-3">
+                                <div className="flex justify-between items-center border-b border-gray-100 pb-2">
+                                    <span className="text-gray-500 font-medium text-sm">Student</span>
+                                    <span className="font-bold text-gray-900">{result.studentName} ({result.rollNumber})</span>
+                                </div>
+                                <div className="flex justify-between items-center border-b border-gray-100 pb-2">
+                                    <span className="text-gray-500 font-medium text-sm">Status</span>
+                                    <span className="bg-green-600 text-white px-3 py-0.5 rounded-full text-xs font-bold uppercase tracking-wider">
+                                        {result.status}
+                                    </span>
+                                </div>
+                                <div className="flex justify-between items-center pt-1">
+                                    <span className="text-gray-500 font-medium text-sm">Outpass ID</span>
+                                    <span className="text-gray-900 text-sm font-mono">{result.outpassId.slice(-6).toUpperCase()}</span>
+                                </div>
+                            </div>
+
+                            <button 
+                                onClick={() => setResult(null)}
+                                className="mt-5 w-full bg-green-600 text-white py-2.5 rounded-lg hover:bg-green-700 font-medium transition-colors"
+                            >
+                                Scan Next Student
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     )
 }

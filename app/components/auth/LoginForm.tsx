@@ -107,9 +107,8 @@ export default function LoginForm() {
         } else if (data.role === "hod") {
           router.push("/hod");
         } else if (data.role === "security") {
-          router.push("/security");
-        } else if (data.role === "protocol_officer") {
-          router.push("/protocol");
+          // ✅ Directs straight to the gate scanner dashboard
+          router.push("/security"); 
         } else {
           alert("Unknown employee role. Please contact admin.");
         }
@@ -121,7 +120,6 @@ export default function LoginForm() {
       alert("Network or server error. Please try again.");
     }
   };
-
   const handleForgotPassword = (cardId: LoginCardId) => {
     alert(`Forgot password for ${cardId} is not implemented yet.`);
   };
