@@ -5,7 +5,6 @@ import { useRouter, usePathname } from 'next/navigation';
 const menuItems = [
     { label: 'Dashboard', path: '/hod' },
     { label: 'Pending Approvals', path: '/hod/pending-approvals' },
-    { label: 'Bulk Actions', path: '/hod/bulk-actions' },
     { label: 'Reports', path: '/hod/reports' },
     { label: 'History', path: '/hod/history' },
     { label: 'Logout', path: '/hod/logout' },

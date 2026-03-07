@@ -12,7 +12,9 @@ import {
     Download,
     Filter,
     Calendar,
-    ChevronDown
+    ChevronDown,
+    Bot, // ✅ Added Bot Icon
+    Loader2
 } from "lucide-react"
 
 type HodPendingSummary = {
@@ -31,6 +33,7 @@ type HodPendingRequest = {
     facultyApprovedAt: string
     attendanceAtApply: number
     attendanceStatus: string
+    parentContact: string
     reasonCategory: string
     reason: string
     exitTime: string
@@ -38,6 +41,14 @@ type HodPendingRequest = {
     requestedAgo: string
     timeInHodQueue: string
     isEmergency: boolean
+    // ✅ New Fields
+    mlDecision?: string
+    mlExplanation?: string
+    parentVerification?: {
+        status: boolean
+        verifiedBy?: string
+        verifiedAt?: string
+    }
 }
 
 type HodPendingApprovalsResponse = {
@@ -53,7 +64,6 @@ const CATEGORY_OPTIONS = [
     { value: "religious", label: "Religious" },
     { value: "academic", label: "Academic" }
 ]
-
 const API_BASE =
     (process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") as string) || "http://localhost:5000"
 
@@ -77,6 +87,8 @@ export default function HodPendingApprovalsPage() {
     const [actionError, setActionError] = useState<string | null>(null)
 
     const categoryParam = searchParams.get("category") ?? "all"
+    // ✅ Placed it here, inside the component body!
+    const [isBulkApproving, setIsBulkApproving] = useState(false)
 
     useEffect(() => {
         const controller = new AbortController()
@@ -95,7 +107,13 @@ export default function HodPendingApprovalsPage() {
                     return
                 }
 
-                const response = await fetch(`${API_BASE}/api/hod/pending-approvals`, {
+                // Attach category directly to the URL
+                const fetchUrl = new URL(`${API_BASE}/api/hod/pending-approvals`)
+                if (categoryParam !== "all") {
+                    fetchUrl.searchParams.append("category", categoryParam)
+                }
+
+                const response = await fetch(fetchUrl.toString(), {
                     headers: {
                         "Content-Type": "application/json",
                         Authorization: `Bearer ${token}`
@@ -103,6 +121,12 @@ export default function HodPendingApprovalsPage() {
                     cache: "no-store",
                     signal: controller.signal
                 })
+
+                if (response.status === 404) {
+                    // API returns 404 when no results match the category, handle it gracefully
+                    setData({ summary: { totalPending: 0, urgentCount: 0, department: "Department" }, requests: [] })
+                    return
+                }
 
                 if (!response.ok) {
                     const body = await response.json().catch(() => null)
@@ -125,35 +149,20 @@ export default function HodPendingApprovalsPage() {
         fetchPendingApprovals()
 
         return () => controller.abort()
-    }, [])
+    }, [categoryParam])
 
     const filteredRequests = useMemo(() => {
         if (!data) return []
-        const selectedLabel = findCategoryLabel(categoryParam)
-        const normalizedSelectedLabel = normalizeCategory(selectedLabel)
-
         return data.requests.filter(request => {
             const query = searchTerm.trim().toLowerCase()
-            const matchesSearch =
+            return (
                 query.length === 0 ||
                 request.studentName.toLowerCase().includes(query) ||
                 request.rollNumber.toLowerCase().includes(query) ||
                 request.reason.toLowerCase().includes(query)
-
-            if (!matchesSearch) return false
-
-            if (categoryParam === "all") return true
-
-            const normalizedReasonCategory = normalizeCategory(request.reasonCategory)
-            const normalizedParam = normalizeCategory(categoryParam)
-
-            if (normalizedReasonCategory === normalizedParam) return true
-            if (normalizedSelectedLabel && normalizedReasonCategory === normalizedSelectedLabel)
-                return true
-
-            return false
+            )
         })
-    }, [data, searchTerm, categoryParam])
+    }, [data, searchTerm])
 
     const handleCategoryChange = (value: string) => {
         const params = new URLSearchParams(searchParams.toString())
@@ -166,41 +175,8 @@ export default function HodPendingApprovalsPage() {
     }
 
     const refetchData = async () => {
-        const token =
-            typeof window !== "undefined" ? window.localStorage.getItem("token") : null
-
-        if (!token) {
-            setError("Authentication required. Please log in again.")
-            return
-        }
-
-        try {
-            setLoading(true)
-            setError(null)
-
-            const response = await fetch(`${API_BASE}/api/hod/pending-approvals`, {
-                headers: {
-                    "Content-Type": "application/json",
-                    Authorization: `Bearer ${token}`
-                },
-                cache: "no-store"
-            })
-
-            if (!response.ok) {
-                const body = await response.json().catch(() => null)
-                throw new Error(
-                    body?.message ||
-                        `Failed to refresh pending approvals (status ${response.status})`
-                )
-            }
-
-            const payload: HodPendingApprovalsResponse = await response.json()
-            setData(payload)
-        } catch (err: unknown) {
-            setError((err as Error)?.message ?? "Unable to refresh pending approvals.")
-        } finally {
-            setLoading(false)
-        }
+        // Simple reload to let useEffect handle it
+        window.location.reload()
     }
 
     const handleAction = async (
@@ -248,12 +224,48 @@ export default function HodPendingApprovalsPage() {
         }
     }
 
-    const handleApproveAll = () => {
-        console.log("Approving all pending requests")
-    }
+    const handleApproveAll = async () => {
+        if (filteredRequests.length === 0) return;
 
-    const handleExport = () => {
-        console.log("Exporting approval list")
+        if (!window.confirm(`Are you sure you want to approve all ${filteredRequests.length} displayed requests?`)) {
+            return;
+        }
+
+        const token = typeof window !== "undefined" ? window.localStorage.getItem("token") : null;
+        if (!token) {
+            setActionError("Authentication required. Please log in again.");
+            return;
+        }
+
+        try {
+            setIsBulkApproving(true);
+            setActionError(null);
+
+            // Extract just the IDs of the currently filtered items on screen
+            const requestIds = filteredRequests.map(req => req.requestId);
+
+            const response = await fetch(`${API_BASE}/api/hod/outpass/bulk-approve`, {
+                method: "PUT",
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${token}`
+                },
+                body: JSON.stringify({ requestIds })
+            });
+
+            if (!response.ok) {
+                const body = await response.json().catch(() => null);
+                throw new Error(body?.message || "Failed to bulk approve requests");
+            }
+
+            const result = await response.json();
+            window.alert(result.message);
+            await refetchData(); // Refresh the list
+        } catch (err: unknown) {
+            setActionError((err as Error)?.message ?? "Unable to bulk approve requests.");
+        } finally {
+            setIsBulkApproving(false);
+        }
     }
 
     if (loading) {
@@ -268,19 +280,14 @@ export default function HodPendingApprovalsPage() {
         )
     }
 
-    if (!data) {
-        return (
-            <div className="p-6 text-gray-600">
-                No pending approvals found.
-            </div>
-        )
-    }
+    if (!data) return null
 
     const { summary } = data
 
     return (
-        <div className="p-6 space-y-6">
-            <div className="bg-gradient-to-r from-[#1F8941] to-[#1a7a39] text-white rounded-xl p-6">
+        <div className="p-6 space-y-6 max-w-7xl mx-auto">
+            {/* Header Banner */}
+            <div className="bg-gradient-to-r from-[#1F8941] to-[#1a7a39] text-white rounded-xl p-6 shadow-sm">
                 <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                     <div>
                         <h1 className="text-2xl font-bold flex items-center mb-1">
@@ -291,25 +298,26 @@ export default function HodPendingApprovalsPage() {
                             Review teacher-verified requests for {summary.department}
                         </p>
                     </div>
-                    <div className="text-center md:text-right">
+                    <div className="text-center md:text-right bg-white/10 p-3 rounded-lg">
                         <div className="text-3xl font-semibold">
                             {summary.totalPending}
                         </div>
-                        <div className="text-sm text-green-100">
+                        <div className="text-sm text-green-50 tracking-wide uppercase mt-1">
                             Awaiting Approval • {summary.urgentCount} urgent
                         </div>
                     </div>
                 </div>
             </div>
 
-            <div className="bg-white rounded-xl shadow-sm border p-6 space-y-4 md:space-y-0 md:flex md:items-center md:justify-between md:space-x-6">
+            {/* Controls */}
+            <div className="bg-white rounded-xl shadow-sm border p-4 space-y-4 md:space-y-0 md:flex md:items-center md:justify-between md:space-x-6">
                 <div className="flex w-full flex-col gap-3 md:flex-row md:items-center md:gap-4">
                     <div className="relative flex-1">
                         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
                         <input
                             value={searchTerm}
                             onChange={(event) => setSearchTerm(event.target.value)}
-                            placeholder="Search approvals..."
+                            placeholder="Search by student name, roll number, or reason..."
                             className="w-full rounded-lg border border-gray-300 py-2 pl-10 pr-4 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-[#1F8941]"
                         />
                     </div>
@@ -318,7 +326,7 @@ export default function HodPendingApprovalsPage() {
                         <select
                             value={categoryParam}
                             onChange={event => handleCategoryChange(event.target.value)}
-                            className="appearance-none rounded-lg border border-gray-300 py-2 pl-10 pr-12 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-[#1F8941]"
+                            className="appearance-none rounded-lg border border-gray-300 py-2 pl-10 pr-12 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-[#1F8941] bg-white"
                         >
                             {CATEGORY_OPTIONS.map(option => (
                                 <option key={option.value} value={option.value}>
@@ -334,172 +342,162 @@ export default function HodPendingApprovalsPage() {
                 <div className="flex w-full flex-col gap-3 md:w-auto md:flex-row md:items-center md:gap-3">
                     <button
                         onClick={handleApproveAll}
-                        className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#1F8941] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#1a7a39]"
+                        disabled={filteredRequests.length === 0}
+                        className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#1F8941] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#1a7a39] disabled:opacity-50"
                     >
                         <CheckCircle className="h-4 w-4" />
                         Approve All
                     </button>
                     <button
-                        onClick={handleExport}
                         className="flex w-full items-center justify-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
                     >
                         <Download className="h-4 w-4" />
-                        Export List
+                        Export
                     </button>
                 </div>
             </div>
 
+            {/* List of Requests */}
             <div className="space-y-4">
+                {filteredRequests.length === 0 && (
+                    <div className="bg-white rounded-xl shadow-sm border border-dashed p-12 text-center">
+                        <Shield className="mx-auto mb-3 h-12 w-12 text-gray-300" />
+                        <p className="text-gray-600 font-medium text-lg">All Caught Up!</p>
+                        <p className="text-gray-500 text-sm mt-1">
+                            {categoryParam === "all"
+                                ? "No pending approvals match your search."
+                                : `No pending ${findCategoryLabel(categoryParam).toLowerCase()} requests right now.`}
+                        </p>
+                    </div>
+                )}
+
                 {filteredRequests.map((request) => (
-                    <div key={request.requestId} className="bg-white rounded-xl shadow-sm border p-6">
+                    <div key={request.requestId} className={`bg-white rounded-xl shadow-sm border p-6 hover:shadow-md transition-shadow ${request.isEmergency ? 'border-red-300' : 'border-gray-200'}`}>
                         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                             <div className="flex flex-1 items-start space-x-4">
-                                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-100">
-                                    <User className="h-6 w-6 text-blue-600" />
+                                <div className={`flex h-12 w-12 items-center justify-center rounded-full ${request.isEmergency ? 'bg-red-100' : 'bg-blue-100'}`}>
+                                    <User className={`h-6 w-6 ${request.isEmergency ? 'text-red-600' : 'text-blue-600'}`} />
                                 </div>
                                 <div className="space-y-2">
                                     <div className="flex flex-wrap items-center gap-2">
                                         <h3 className="text-lg font-semibold text-gray-900">
                                             {request.studentName}
                                         </h3>
-                                        <span className="inline-flex items-center rounded-full bg-blue-100 px-2 py-1 text-xs font-medium text-blue-800">
-                                            <CheckCircle className="mr-1 h-3 w-3" />
-                                            Teacher Verified
+                                        <span className="text-sm text-gray-500">
+                                            ({request.rollNumber})
                                         </span>
+                                    </div>
+                                    <p className="text-sm text-gray-600">
+                                        {request.class} • {request.department}
+                                    </p>
+                                    
+                                    {/* ✅ BADGES */}
+                                    <div className="flex flex-wrap gap-2 mt-1">
                                         {request.isEmergency && (
-                                            <span className="inline-flex items-center rounded-full bg-red-100 px-2 py-1 text-xs font-medium text-red-800">
+                                            <span className="inline-flex items-center rounded bg-red-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-red-800 border border-red-200">
                                                 <AlertTriangle className="mr-1 h-3 w-3" />
-                                                HIGH PRIORITY
+                                                Emergency
+                                            </span>
+                                        )}
+                                        {request.parentVerification?.status && (
+                                            <span className="inline-flex items-center rounded bg-emerald-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-emerald-800 border border-emerald-300">
+                                                <CheckCircle className="mr-1 h-3 w-3" />
+                                                Parent Verified ({request.parentVerification.verifiedBy})
                                             </span>
                                         )}
                                         {request.attendanceAtApply < 75 && (
-                                            <span className="inline-flex items-center rounded-full bg-yellow-100 px-2 py-1 text-xs font-medium text-yellow-800">
+                                            <span className="inline-flex items-center rounded bg-yellow-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-yellow-800 border border-yellow-300">
                                                 <AlertTriangle className="mr-1 h-3 w-3" />
                                                 Low Attendance
                                             </span>
                                         )}
                                     </div>
-                                    <p className="text-sm text-gray-600">
-                                        {request.rollNumber} • {request.department}
-                                    </p>
-                                    <p className="text-sm text-gray-600">
-                                        Approved by:{" "}
-                                        <span className="font-medium">{request.facultyApprovedBy}</span>
-                                    </p>
-                                    <div className="flex flex-wrap items-center gap-4 text-sm text-gray-600">
-                                        <span>
-                                            Attendance:{" "}
-                                            <span className="font-medium text-gray-900">
-                                                {request.attendanceAtApply}%
-                                            </span>
-                                        </span>
-                                <span>
-                                    Category:{" "}
-                                    <span className="font-medium text-gray-900">
-                                        {request.reasonCategory}
-                                    </span>
-                                </span>
-                                    </div>
                                 </div>
                             </div>
-                            <div className="text-left md:text-right">
-                                <p className="text-sm font-medium text-gray-700">Teacher approved</p>
-                                <p className="text-xs text-gray-500 flex items-center justify-start md:justify-end">
-                                    <Calendar className="mr-1 h-3 w-3" />
-                                    {request.facultyApprovedAt}
+                            <div className="text-left md:text-right space-y-1">
+                                <p className="text-sm font-medium text-gray-700">
+                                    Teacher: <span className="font-semibold text-gray-900">{request.facultyApprovedBy}</span>
                                 </p>
-                                <p className="mt-2 text-xs text-gray-400">#{request.requestId}</p>
+                                <p className="text-xs text-gray-500 flex items-center md:justify-end">
+                                    <CheckCircle className="mr-1 h-3 w-3 text-green-500" />
+                                    Approved {request.facultyApprovedAt}
+                                </p>
+                                <p className="text-xs text-gray-400 mt-2">ID: #{request.requestId.slice(-6).toUpperCase()}</p>
                             </div>
                         </div>
 
-                        <div className="mt-4 rounded-lg bg-gray-50 p-4">
+                        {/* ✅ ML AI EXPLANATION BOX */}
+                        <div className="mt-4 rounded-lg bg-blue-50 border border-blue-100 p-4">
+                            <div className="flex items-center gap-2 mb-2">
+                                <Bot className="w-4 h-4 text-blue-600" />
+                                <span className="text-xs font-bold uppercase tracking-wider text-blue-800">
+                                    AI Analysis: {request.mlDecision?.replace('_', ' ')}
+                                </span>
+                            </div>
+                            <p className="text-sm text-blue-900 italic">
+                                "{request.mlExplanation || 'No AI explanation available.'}"
+                            </p>
+                        </div>
+
+                        <div className="mt-4 rounded-lg bg-gray-50 border border-gray-100 p-4">
                             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                                 <div>
-                                    <p className="text-sm font-medium text-gray-700">Reason</p>
-                                    <p className="text-sm text-gray-900">{request.reason}</p>
+                                    <p className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-1">Reason ({request.reasonCategory})</p>
+                                    <p className="text-sm text-gray-900 font-medium">{request.reason}</p>
                                 </div>
                                 <div className="space-y-1 text-sm text-gray-900">
-                                    <p className="font-medium text-gray-700">Schedule</p>
-                                    <p>
-                                        Exit: <span className="font-medium">{request.exitTime}</span>
-                                    </p>
-                                    <p>
-                                        Return: <span className="font-medium">{request.returnTime}</span>
-                                    </p>
+                                    <p className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-1">Schedule & Details</p>
+                                    <p>Exit: <span className="font-medium">{request.exitTime}</span></p>
+                                    <p>Return: <span className="font-medium">{request.returnTime}</span></p>
+                                    <p>Attendance: <span className={`font-medium ${request.attendanceAtApply < 75 ? 'text-red-600' : 'text-green-600'}`}>{request.attendanceAtApply}%</span></p>
                                 </div>
                             </div>
                         </div>
 
-                        <div className="mt-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                            <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500">
-                                <span className="inline-flex items-center rounded-full bg-blue-100 px-2 py-1 text-xs font-medium text-blue-800">
-                                    <CheckCircle className="mr-1 h-3 w-3" />
-                                    Teacher Verified
-                                </span>
-                                {request.attendanceAtApply < 75 && (
-                                    <span className="inline-flex items-center rounded-full bg-yellow-100 px-2 py-1 text-xs font-medium text-yellow-800">
-                                        <AlertTriangle className="mr-1 h-3 w-3" />
-                                        Low Attendance
-                                    </span>
-                                )}
-                                <span>Requested {request.requestedAgo}</span>
-                                <span>In queue {request.timeInHodQueue}</span>
-                            </div>
-                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-                                <button
-                                    onClick={() => handleAction(request.requestId, "approve")}
-                                    className="flex items-center justify-center gap-2 rounded-lg bg-green-500 px-6 py-2 text-sm font-medium text-white transition-colors hover:bg-green-600"
-                                    disabled={processingId === request.requestId}
-                                >
-                                    <CheckCircle className="h-4 w-4" />
-                                    Approve
-                                </button>
-                                <button
-                                    onClick={() => {
-                                        setSelectedRejectId(request.requestId)
-                                        setRejectionNote("")
-                                        setShowRejectModal(true)
-                                        setActionError(null)
-                                    }}
-                                    className="flex items-center justify-center gap-2 rounded-lg bg-red-500 px-6 py-2 text-sm font-medium text-white transition-colors hover:bg-red-600"
-                                >
-                                    <XCircle className="h-4 w-4" />
-                                    Reject
-                                </button>
-                            </div>
+                        <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-end border-t border-gray-100 pt-4">
+                            <button
+                                onClick={() => {
+                                    setSelectedRejectId(request.requestId)
+                                    setRejectionNote("")
+                                    setShowRejectModal(true)
+                                    setActionError(null)
+                                }}
+                                className="flex items-center justify-center gap-2 rounded-lg border border-red-200 px-6 py-2 text-sm font-medium text-red-600 transition-colors hover:bg-red-50"
+                            >
+                                <XCircle className="h-4 w-4" />
+                                Reject
+                            </button>
+                            <button
+                                onClick={() => handleAction(request.requestId, "approve")}
+                                className="flex items-center justify-center gap-2 rounded-lg bg-green-600 px-8 py-2 text-sm font-medium text-white transition-colors hover:bg-green-700"
+                                disabled={processingId === request.requestId}
+                            >
+                                {processingId === request.requestId ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
+                                Approve Outpass
+                            </button>
                         </div>
                     </div>
                 ))}
             </div>
 
-            {filteredRequests.length === 0 && (
-                <div className="bg-white rounded-xl shadow-sm border p-8 text-center">
-                    <Shield className="mx-auto mb-3 h-12 w-12 text-gray-300" />
-                    <p className="text-gray-500">
-                        {categoryParam === "all"
-                            ? "No pending approvals match your filters"
-                            : `No ${findCategoryLabel(categoryParam).toLowerCase()} requests right now`}
-                    </p>
-                </div>
-            )}
-
             {showRejectModal && selectedRejectId && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-                    <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-lg">
-                        <h3 className="text-lg font-semibold text-gray-900 mb-3">
-                            Provide Rejection Reason
-                        </h3>
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+                    <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-2xl">
+                        <div className="flex items-center gap-3 mb-4 text-red-600">
+                            <AlertTriangle className="w-6 h-6" />
+                            <h3 className="text-lg font-bold">Provide Rejection Reason</h3>
+                        </div>
                         <p className="text-sm text-gray-600 mb-4">
-                            Please explain why this outpass request is being rejected. The student will see this note.
+                            Please explain why this outpass request is being rejected. This note will be visible to the student and faculty.
                         </p>
                         <textarea
                             value={rejectionNote}
                             onChange={event => setRejectionNote(event.target.value)}
-                            placeholder="Enter rejection reason..."
-                            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-[#1F8941] min-h-[120px]"
+                            placeholder="e.g. Inadequate reason, low attendance..."
+                            className="w-full rounded-lg border border-gray-300 px-3 py-3 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-red-500 min-h-[120px] bg-gray-50"
                         />
                         {actionError && (
-                            <p className="mt-2 text-sm text-red-600">
+                            <p className="mt-2 text-sm text-red-600 font-medium">
                                 {actionError}
                             </p>
                         )}
@@ -511,7 +509,7 @@ export default function HodPendingApprovalsPage() {
                                     setRejectionNote("")
                                     setActionError(null)
                                 }}
-                                className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                                className="rounded-lg border border-gray-300 px-5 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
                                 disabled={processingId === selectedRejectId}
                             >
                                 Cancel
@@ -525,11 +523,11 @@ export default function HodPendingApprovalsPage() {
                                     setShowRejectModal(false)
                                     handleAction(selectedRejectId, "reject", rejectionNote)
                                 }}
-                                className="flex items-center justify-center gap-2 rounded-lg bg-red-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-600"
+                                className="flex items-center justify-center gap-2 rounded-lg bg-red-600 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-red-700"
                                 disabled={processingId === selectedRejectId}
                             >
-                                <XCircle className="h-4 w-4" />
-                                Submit Rejection
+                                {processingId === selectedRejectId ? <Loader2 className="w-4 h-4 animate-spin" /> : <XCircle className="h-4 w-4" />}
+                                Confirm Rejection
                             </button>
                         </div>
                     </div>
