@@ -44,7 +44,11 @@ export default function QRScanner() {
         const initCamera = async () => {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: 'environment' }
+                    video: { 
+                        facingMode: 'environment',
+                        width: { ideal: 1920 }, // Requests high-definition width
+                        height: { ideal: 1080 } // Requests high-definition height
+                    }
                 })
                 if (videoRef.current) {
                     videoRef.current.srcObject = stream
