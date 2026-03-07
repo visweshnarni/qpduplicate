@@ -106,6 +106,8 @@ export default function LoginForm() {
           router.push("/teacher");
         } else if (data.role === "hod") {
           router.push("/hod");
+        } else if (data.role === "security") {
+          router.push("/security");
         } else if (data.role === "protocol_officer") {
           router.push("/protocol");
         } else {
