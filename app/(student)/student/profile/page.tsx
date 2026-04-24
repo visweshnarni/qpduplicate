@@ -177,7 +177,7 @@ export default function StudentProfilePage() {
             createdAt: outpass.createdAt
           }))
           .sort(
-            (a, b) =>
+            (a: OutpassApplication, b: OutpassApplication) =>
               new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
           )
           .slice(0, 5)
