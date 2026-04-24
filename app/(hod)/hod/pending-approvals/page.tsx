@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { Suspense, useEffect, useMemo, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import {
     Search,
@@ -73,7 +73,8 @@ const normalizeCategory = (value: string) =>
 const findCategoryLabel = (value: string) =>
     CATEGORY_OPTIONS.find(option => option.value === value)?.label ?? value
 
-export default function HodPendingApprovalsPage() {
+// 1. Rename main function to an internal component
+function HodPendingApprovalsContent() {
     const router = useRouter()
     const searchParams = useSearchParams()
     const [searchTerm, setSearchTerm] = useState("")
@@ -534,5 +535,14 @@ export default function HodPendingApprovalsPage() {
                 </div>
             )}
         </div>
+    )
+}
+
+// 2. Create the default export that wraps everything in Suspense
+export default function HodPendingApprovalsPage() {
+    return (
+        <Suspense fallback={<div className="p-6 text-gray-600">Loading pending approvals...</div>}>
+            <HodPendingApprovalsContent />
+        </Suspense>
     )
 }
