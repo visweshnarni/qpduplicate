@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import {
   RefreshCw,
@@ -53,7 +53,8 @@ interface ClassesResponse {
 
 type FilterOption = 'department' | 'myclass'
 
-export default function StudentProfilesPage() {
+// 1. Rename the main component to act as the inner content
+function StudentProfilesContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
 
@@ -437,5 +438,14 @@ export default function StudentProfilesPage() {
         )}
       </section>
     </div>
+  )
+}
+
+// 2. Export the Suspense wrapper as the default component
+export default function StudentProfilesPage() {
+  return (
+    <Suspense fallback={<div className="p-6 text-gray-600">Loading student profiles...</div>}>
+      <StudentProfilesContent />
+    </Suspense>
   )
 }

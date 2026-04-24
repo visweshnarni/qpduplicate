@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import {
   AlertTriangle,
@@ -88,7 +88,8 @@ const normalizeNumberParam = (value: string | null, fallback: number) => {
   return Math.floor(parsed)
 }
 
-export default function FacultyHistoryPage() {
+// 1. Rename the main function to act as the inner content
+function FacultyHistoryContent() {
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -239,7 +240,6 @@ export default function FacultyHistoryPage() {
     return '📄'
   }
 
-  // ✅ UPDATED BADGE STYLING
   const statusClasses = (status: string) => {
     const normalized = status.toLowerCase()
     if (normalized === 'approved') return 'bg-green-50 text-green-600 border-green-200'
@@ -249,7 +249,6 @@ export default function FacultyHistoryPage() {
     return 'bg-gray-50 text-gray-500 border-gray-200'
   }
 
-  // ✅ ADDED ICON FOR BADGE
   const getStatusIcon = (status: string) => {
     const normalized = status.toLowerCase()
     if (normalized === 'exited') return <LogOut className="w-3 h-3" />
@@ -441,7 +440,6 @@ export default function FacultyHistoryPage() {
                     </div>
                   </div>
                   
-                  {/* ✅ Renders dynamic icons for Exited vs Approved */}
                   <span className={`inline-flex items-center gap-1 px-3 py-1 text-xs font-semibold rounded-full border ${statusClass}`}>
                     {getStatusIcon(record.status)}
                     <span className="capitalize">{record.status}</span>
@@ -568,5 +566,14 @@ export default function FacultyHistoryPage() {
         </div>
       )}
     </div>
+  )
+}
+
+// 2. Wrap the content component in the default exported Susense boundary
+export default function FacultyHistoryPage() {
+  return (
+    <Suspense fallback={<div className="p-6 text-gray-600">Loading history...</div>}>
+      <FacultyHistoryContent />
+    </Suspense>
   )
 }

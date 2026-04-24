@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import {
   Clock,
@@ -53,7 +53,8 @@ interface PendingRequest {
 
 type FilterOption = 'all' | 'myclass'
 
-export default function PendingRequestsPage() {
+// 1. Rename the main component to act as the inner content
+function PendingRequestsContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
 
@@ -410,5 +411,14 @@ export default function PendingRequestsPage() {
         )}
       </section>
     </div>
+  )
+}
+
+// 2. Export the Suspense wrapper as the default component
+export default function PendingRequestsPage() {
+  return (
+    <Suspense fallback={<div className="p-6 text-gray-600">Loading requests...</div>}>
+      <PendingRequestsContent />
+    </Suspense>
   )
 }

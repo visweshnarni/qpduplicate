@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { Suspense, useEffect, useMemo, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import {
     User,
@@ -47,7 +47,8 @@ interface PendingRequest {
     parentVerifiedBy?: string
 }
 
-export default function TeacherDashboardPage() {
+// 1. Rename main function to the internal content component
+function TeacherDashboardContent() {
     const router = useRouter()
     const searchParams = useSearchParams()
 
@@ -126,7 +127,6 @@ export default function TeacherDashboardPage() {
 
     return (
         <div className="p-6 space-y-6">
-            {/* ... Existing Banner & Filter Buttons remain unchanged ... */}
             <div className="bg-gradient-to-r from-[#1F8941] to-[#1a7a39] text-white rounded-xl p-6">
                 <div className="flex items-center justify-between">
                     <div>
@@ -345,5 +345,14 @@ export default function TeacherDashboardPage() {
                 </div>
             </div>
         </div>
+    )
+}
+
+// 2. Export the Suspense wrapper as the default component
+export default function TeacherDashboardPage() {
+    return (
+        <Suspense fallback={<div className="p-6 text-gray-600">Loading dashboard...</div>}>
+            <TeacherDashboardContent />
+        </Suspense>
     )
 }
