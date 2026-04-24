@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { Suspense, useEffect, useMemo, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import {
     History as HistoryIcon,
@@ -43,7 +43,8 @@ const statusBadgeStyles: Record<
     }
 }
 
-export default function HodHistoryPage() {
+// 1. Rename your main function to an internal component
+function HodHistoryContent() {
     const router = useRouter()
     const searchParams = useSearchParams()
     const [searchTerm, setSearchTerm] = useState("")
@@ -286,7 +287,7 @@ export default function HodHistoryPage() {
                     </div>
                 </div>
 
-                    <div className="bg-white rounded-xl shadow-sm border p-6">
+                <div className="bg-white rounded-xl shadow-sm border p-6">
                     <div className="flex items-center justify-between">
                         <div>
                             <p className="text-sm text-gray-600">Rejected</p>
@@ -432,3 +433,11 @@ export default function HodHistoryPage() {
     )
 }
 
+// 2. Create the default export that wraps everything in Suspense
+export default function HodHistoryPage() {
+    return (
+        <Suspense fallback={<div className="p-6 text-gray-600">Loading page...</div>}>
+            <HodHistoryContent />
+        </Suspense>
+    )
+}
