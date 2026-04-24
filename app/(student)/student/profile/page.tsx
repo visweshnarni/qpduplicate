@@ -56,7 +56,8 @@ interface OutpassApplication {
     status: string
     timestamp?: string
   }
-  studentId?: {
+  // FIXED: Changed studentId to studentInfo to match your state updates
+  studentInfo?: {
     name: string
     rollNumber: string
     department: string
@@ -646,4 +647,3 @@ export default function StudentProfilePage() {
     </div>
   )
 }
-
