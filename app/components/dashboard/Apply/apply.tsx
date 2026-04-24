@@ -7,7 +7,8 @@ import { User, Calendar, FileText, AlertCircle, CheckCircle } from 'lucide-react
 export default function Apply() {
   const router = useRouter()
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [errors, setErrors] = useState({})
+  // FIXED: Added type definition for errors object
+  const [errors, setErrors] = useState<Record<string, string>>({})
   const [user, setUser] = useState({
     name: '',
     email: '',
@@ -38,7 +39,8 @@ export default function Apply() {
   }, [])
 
   const validateForm = () => {
-    const newErrors = {}
+    // FIXED: Added type definition so TypeScript knows we can add string keys
+    const newErrors: Record<string, string> = {}
 
     if (!formData.reason) {
       newErrors.reason = 'Please select a reason category'
@@ -52,7 +54,7 @@ export default function Apply() {
     const toDate = new Date(formData.dateTo)
     const now = new Date()
 
-    if (fromDate < now.setHours(0, 0, 0, 0)) {
+    if (fromDate < new Date(now.setHours(0, 0, 0, 0))) {
       newErrors.dateFrom = 'Start date cannot be in the past'
     }
 
@@ -68,7 +70,8 @@ export default function Apply() {
     return Object.keys(newErrors).length === 0
   }
 
-  const handleSubmit = async (e) => {
+  // FIXED: Added React.FormEvent type to prevent implicit 'any' error
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
 
     if (!validateForm()) return
@@ -106,7 +109,8 @@ export default function Apply() {
     }
   }
 
-  const handleInputChange = (field, value) => {
+  // FIXED: Added string and any types to prevent implicit 'any' error
+  const handleInputChange = (field: string, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }))
     if (errors[field]) {
       setErrors(prev => ({ ...prev, [field]: '' }))
